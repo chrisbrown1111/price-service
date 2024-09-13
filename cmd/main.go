@@ -8,10 +8,15 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"sync"
+
+	_ "net/http/pprof"
 
 	"github.com/chrisbrown1111/price-service/pkg/jwt"
 	"github.com/chrisbrown1111/price-service/pkg/postgres"
 )
+
+var mu sync.Mutex
 
 // Define a struct that matches the JSON structure
 type DiscountResponse struct {
@@ -25,17 +30,21 @@ type DiscountResponse struct {
 }
 
 func priceHandler(w http.ResponseWriter, r *http.Request) {
+	// Start a separate HTTP server for pprof
+
+	mu.Lock()
+	defer mu.Unlock()
 
 	jwtToken := r.URL.Query().Get("jwt")
 
 	secretKey, err := jwt.GetJwtKey()
 	if err != nil {
-		log.Fatalf("priceHandler getJwtKey err: ", err)
+		log.Fatalln("priceHandler getJwtKey err: ", err)
 	}
 
 	claims, err := jwt.ParseJWT(jwtToken, secretKey)
 	if err != nil {
-		log.Printf("Error parsing JWT:", err)
+		log.Println("Error parsing JWT:", err)
 		w.WriteHeader(http.StatusBadRequest)
 	}
 
@@ -114,12 +123,16 @@ func fetchDiscount(quantity int) (DiscountResponse, error) {
 }
 
 func main() {
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 	log.SetOutput(os.Stdout)
 	// Postgres connection string
 	connStr := os.Getenv("DB_IP")
 	if len(connStr) == 0 {
-		connStr = "postgres://postgres:mysecretpassword@localhost:5432/test_db"
+		connStr = "postgres://postgres:mysecretpassword@localhost:5432/test_db?sslmode=disable"
 	}
+	fmt.Println("connStr==", connStr)
 	err := postgres.Init(connStr)
 	if err != nil {
 		log.Fatalf("Error initializing database: %v", err)
